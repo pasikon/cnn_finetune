@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 
+import numpy as np
 from keras.models import Sequential
 from keras.optimizers import SGD
-from keras.layers import Input, Dense, Conv2D, MaxPooling2D, AveragePooling2D, ZeroPadding2D, Dropout, Flatten, \
-    merge, Reshape, Activation
+from keras.layers import Input, Dense, Conv2D, MaxPooling2D, AveragePooling2D, ZeroPadding2D, Flatten, \
+    merge, Activation
 from keras.layers.normalization import BatchNormalization
 from keras.models import Model
+from keras.callbacks import ModelCheckpoint
 from keras import backend as K
 
 from sklearn.metrics import log_loss
-
-from load_cifar10 import load_cifar10_data
 
 
 def identity_block(input_tensor, kernel_size, filters, stage, block):
@@ -142,17 +142,9 @@ def resnet50_model(img_rows, img_cols, color_type=1, num_classes=None):
 
     # Create model
     model = Model(img_input, x_fc)
-
-    # Load ImageNet pre-trained data
-    if K.image_dim_ordering() == 'th':
-        # Use pre-trained weights for Theano backend
-        weights_path = 'imagenet_models/resnet50_weights_th_dim_ordering_th_kernels.h5'
-    else:
-        # Use pre-trained weights for Tensorflow backend
-        weights_path = 'imagenet_models/resnet50_weights_tf_dim_ordering_tf_kernels.h5'
-
-    print('Loading weights...')
-    model.load_weights(weights_path)
+    print('Dimeansion ordering (tf for Tensorflow): ' + str(K.image_dim_ordering()))
+    # For pre-trained ImageNet load weights here
+    # weights_path = 'imagenet_models/resnet50_weights_tf_dim_ordering_tf_kernels.h5'
 
     # Truncate and replace softmax layer for transfer learning
     # Cannot use model.layers.pop() since model is not of Sequential() type
@@ -164,6 +156,12 @@ def resnet50_model(img_rows, img_cols, color_type=1, num_classes=None):
     # Create another model with our customized softmax
     model = Model(img_input, x_newfc)
 
+    # For seedlings loading model here
+    weights_path = 'seedl_chkp/seedlings_weigts_imp-01-0.98.hdf5'
+    print('Loading weights from file: ' + weights_path)
+    model.load_weights(weights_path)
+    print('Loading weights finished...')
+
     # Learning rate is changed to 0.001
     sgd = SGD(lr=1e-3, decay=1e-6, momentum=0.9, nesterov=True)
     model.compile(optimizer=sgd, loss='categorical_crossentropy', metrics=['accuracy'])
@@ -171,16 +169,34 @@ def resnet50_model(img_rows, img_cols, color_type=1, num_classes=None):
     return model
 
 
+def unison_shuffled_copies(a, b):
+    assert len(a) == len(b)
+    p = np.random.permutation(len(a))
+    return a[p], b[p]
+
+
 if __name__ == '__main__':
 
     img_rows, img_cols = 300, 300  # Resolution of inputs
     channel = 3
     num_classes = 12
-    batch_size = 16
+    batch_size = 32
     epochs = 2
 
-    # Load Cifar10 data. Please implement your own load_data() module for your own dataset
-    X_train, Y_train, X_valid, Y_valid = load_cifar10_data(img_rows, img_cols)
+    x_loaded = np.load('seedlings_data/numpy_imgs_resized_train.npy')
+    y_loaded = np.load('seedlings_data/numpy_imgs_train_onehot.npy')
+
+    x_loaded, y_loaded = unison_shuffled_copies(x_loaded, y_loaded)
+
+    X_train = x_loaded[0:4100, :]
+    Y_train = y_loaded[0:4100, :]
+    X_valid = x_loaded[4101:4749, :]
+    Y_valid = y_loaded[4101:4749, :]
+
+    # checkpoint
+    chk_fp = "seedl_chkp/seedlings_weigts_imp-{epoch:02d}-{val_acc:.2f}.hdf5"
+    checkpoint = ModelCheckpoint(chk_fp, monitor='val_acc', verbose=1, save_best_only=True, mode='max')
+    callbacks_list = [checkpoint]
 
     # Load our model
     model = resnet50_model(img_rows, img_cols, channel, num_classes)
@@ -192,6 +208,7 @@ if __name__ == '__main__':
               shuffle=True,
               verbose=1,
               validation_data=(X_valid, Y_valid),
+              callbacks=callbacks_list
               )
 
     # Make predictions
