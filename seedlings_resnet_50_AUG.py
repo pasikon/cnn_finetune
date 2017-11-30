@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
-from keras.models import Sequential
 from keras.optimizers import SGD
+from keras.preprocessing.image import ImageDataGenerator
 from keras.layers import Input, Dense, Conv2D, MaxPooling2D, AveragePooling2D, ZeroPadding2D, Flatten, \
     merge, Activation
 from keras.layers.normalization import BatchNormalization
 from keras.models import Model
-from keras.callbacks import ModelCheckpoint
+from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, CSVLogger
 from keras import backend as K
 
 from sklearn.metrics import log_loss
 
 
-def identity_block(input_tensor, kernel_size, filters, stage, block):
+def identity_block(input_tensor, kernel_size, filters, stage, block, trainable=True):
     """
     The identity_block is the block that has no conv layer at shortcut
     Arguments
@@ -28,16 +28,16 @@ def identity_block(input_tensor, kernel_size, filters, stage, block):
     conv_name_base = 'res' + str(stage) + block + '_branch'
     bn_name_base = 'bn' + str(stage) + block + '_branch'
 
-    x = Conv2D(nb_filter1, (1, 1), name=conv_name_base + '2a')(input_tensor)
+    x = Conv2D(nb_filter1, (1, 1), name=conv_name_base + '2a', trainable=trainable)(input_tensor)
     x = BatchNormalization(axis=bn_axis, name=bn_name_base + '2a')(x)
     x = Activation('relu')(x)
 
     x = Conv2D(nb_filter2, (kernel_size, kernel_size),
-               padding='same', name=conv_name_base + '2b')(x)
+               padding='same', name=conv_name_base + '2b', trainable=trainable)(x)
     x = BatchNormalization(axis=bn_axis, name=bn_name_base + '2b')(x)
     x = Activation('relu')(x)
 
-    x = Conv2D(nb_filter3, (1, 1), name=conv_name_base + '2c')(x)
+    x = Conv2D(nb_filter3, (1, 1), name=conv_name_base + '2c', trainable=trainable)(x)
     x = BatchNormalization(axis=bn_axis, name=bn_name_base + '2c')(x)
 
     x = merge([x, input_tensor], mode='sum')
@@ -45,7 +45,7 @@ def identity_block(input_tensor, kernel_size, filters, stage, block):
     return x
 
 
-def conv_block(input_tensor, kernel_size, filters, stage, block, strides=(2, 2)):
+def conv_block(input_tensor, kernel_size, filters, stage, block, strides=(2, 2), trainable=True):
     """
     conv_block is the block that has a conv layer at shortcut
     # Arguments
@@ -63,20 +63,20 @@ def conv_block(input_tensor, kernel_size, filters, stage, block, strides=(2, 2))
     bn_name_base = 'bn' + str(stage) + block + '_branch'
 
     x = Conv2D(nb_filter1, (1, 1), strides=strides,
-               name=conv_name_base + '2a')(input_tensor)
+               name=conv_name_base + '2a', trainable=trainable)(input_tensor)
     x = BatchNormalization(axis=bn_axis, name=bn_name_base + '2a')(x)
     x = Activation('relu')(x)
 
     x = Conv2D(nb_filter2, (kernel_size, kernel_size), padding='same',
-               name=conv_name_base + '2b')(x)
+               name=conv_name_base + '2b', trainable=trainable)(x)
     x = BatchNormalization(axis=bn_axis, name=bn_name_base + '2b')(x)
     x = Activation('relu')(x)
 
-    x = Conv2D(nb_filter3, (1, 1), name=conv_name_base + '2c')(x)
+    x = Conv2D(nb_filter3, (1, 1), name=conv_name_base + '2c', trainable=trainable)(x)
     x = BatchNormalization(axis=bn_axis, name=bn_name_base + '2c')(x)
 
     shortcut = Conv2D(nb_filter3, (1, 1), strides=strides,
-                      name=conv_name_base + '1')(input_tensor)
+                      name=conv_name_base + '1', trainable=trainable)(input_tensor)
     shortcut = BatchNormalization(axis=bn_axis, name=bn_name_base + '1')(shortcut)
 
     x = merge([x, shortcut], mode='sum')
@@ -110,23 +110,23 @@ def resnet50_model(img_rows, img_cols, color_type=1, num_classes=None, start_fre
         img_input = Input(shape=(color_type, img_rows, img_cols))
 
     x = ZeroPadding2D((3, 3))(img_input)
-    x = Conv2D(64, (7, 7), strides=(2, 2), name='conv1')(x)
+    x = Conv2D(64, (7, 7), strides=(2, 2), name='conv1', trainable=False)(x)
     x = BatchNormalization(axis=bn_axis, name='bn_conv1')(x)
     x = Activation('relu')(x)
     x = MaxPooling2D((3, 3), strides=(2, 2))(x)
 
-    x = conv_block(x, 3, [64, 64, 256], stage=2, block='a', strides=(1, 1))
-    x = identity_block(x, 3, [64, 64, 256], stage=2, block='b')
-    x = identity_block(x, 3, [64, 64, 256], stage=2, block='c')
+    x = conv_block(x, 3, [64, 64, 256], stage=2, block='a', strides=(1, 1), trainable=False)
+    x = identity_block(x, 3, [64, 64, 256], stage=2, block='b', trainable=False)
+    x = identity_block(x, 3, [64, 64, 256], stage=2, block='c', trainable=False)
 
-    x = conv_block(x, 3, [128, 128, 512], stage=3, block='a')
-    x = identity_block(x, 3, [128, 128, 512], stage=3, block='b')
-    x = identity_block(x, 3, [128, 128, 512], stage=3, block='c')
-    x = identity_block(x, 3, [128, 128, 512], stage=3, block='d')
+    x = conv_block(x, 3, [128, 128, 512], stage=3, block='a', trainable=False)
+    x = identity_block(x, 3, [128, 128, 512], stage=3, block='b', trainable=False)
+    x = identity_block(x, 3, [128, 128, 512], stage=3, block='c', trainable=False)
+    x = identity_block(x, 3, [128, 128, 512], stage=3, block='d', trainable=False)
 
-    x = conv_block(x, 3, [256, 256, 1024], stage=4, block='a')
-    x = identity_block(x, 3, [256, 256, 1024], stage=4, block='b')
-    x = identity_block(x, 3, [256, 256, 1024], stage=4, block='c')
+    x = conv_block(x, 3, [256, 256, 1024], stage=4, block='a', trainable=False)
+    x = identity_block(x, 3, [256, 256, 1024], stage=4, block='b', trainable=False)
+    x = identity_block(x, 3, [256, 256, 1024], stage=4, block='c', trainable=False)
     x = identity_block(x, 3, [256, 256, 1024], stage=4, block='d')
     x = identity_block(x, 3, [256, 256, 1024], stage=4, block='e')
     x = identity_block(x, 3, [256, 256, 1024], stage=4, block='f')
@@ -181,41 +181,63 @@ def unison_shuffled_copies(a, b):
 
 
 if __name__ == '__main__':
-
     img_rows, img_cols = 300, 300  # Resolution of inputs
     channel = 3
     num_classes = 12
     batch_size = 32
-    epochs = 32
+    epochs = 64
 
     x_loaded = np.load('seedlings_data/numpy_imgs_resized_train.npy')
     y_loaded = np.load('seedlings_data/numpy_imgs_train_onehot.npy')
 
     x_loaded, y_loaded = unison_shuffled_copies(x_loaded, y_loaded)
-    print(x_loaded.shape)
 
     X_train = x_loaded[0:4100, :]
     Y_train = y_loaded[0:4100, :]
-    X_valid = x_loaded[4101:4751, :]
-    Y_valid = y_loaded[4101:4751, :]
+    X_valid = x_loaded[4101:4750, :]
+    Y_valid = y_loaded[4101:4750, :]
+
+    datagen_aug = ImageDataGenerator(
+        # zoom_range=0.1,
+        rotation_range=7,
+        fill_mode='constant',
+        # width_shift_range=0.2,
+        vertical_flip=True,
+        # height_shift_range=0.2,
+        horizontal_flip=True
+    )
 
     # checkpoint
-    chk_fp = "seedl_chkp/seedl_wghl_lr1e-3-{epoch:02d}-{val_acc:.4f}.hdf5"
+    chk_fp = "seedl_chkp/seedl_wgh_AUG_NT1234_redlr_lr1e-3_rot7-ep{epoch:02d}-{val_acc:.5f}.hdf5"
     checkpoint = ModelCheckpoint(chk_fp, monitor='val_acc', verbose=1, save_best_only=True, mode='max')
-    callbacks_list = [checkpoint]
+    csv_logger = CSVLogger('csvlog/training.log')
+    # reduce lr
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=0.0001)
+    callbacks_list = [checkpoint, reduce_lr, csv_logger]
 
     # Load our model
     model = resnet50_model(img_rows, img_cols, channel, num_classes, start_fresh=True)
 
     # Start Fine-tuning
-    model.fit(X_train, Y_train,
-              batch_size=batch_size,
-              epochs=epochs,
-              shuffle=True,
-              verbose=1,
-              validation_data=(X_valid, Y_valid),
-              callbacks=callbacks_list
-              )
+
+    steps_per_epoch = int(X_train.shape[0] / batch_size)
+    print('Steps per epoch: %s' % steps_per_epoch)
+
+    model.fit_generator(
+        # X_train, Y_train,
+        datagen_aug.flow(
+            X_train, Y_train,
+            batch_size=batch_size,
+            shuffle=True
+            # save_to_dir='augmented_pics'
+        ),
+        epochs=epochs,
+        workers=12,
+        verbose=1,
+        steps_per_epoch=steps_per_epoch,  # Steps per epoch = samples_training_set/batch_size
+        validation_data=(X_valid, Y_valid),
+        callbacks=callbacks_list
+    )
 
     # Make predictions
     predictions_valid = model.predict(X_valid, batch_size=batch_size, verbose=1)
