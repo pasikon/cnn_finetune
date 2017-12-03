@@ -47,9 +47,9 @@ def resnet50(img_dim):
 
 def get_datagen_augment():
     generator = ImageDataGenerator(
-        rotation_range=7,
-        width_shift_range=0.03,
-        height_shift_range=0.03,
+        rotation_range=30,
+        width_shift_range=0.07,
+        height_shift_range=0.07,
         horizontal_flip=True,
         vertical_flip=True,
         fill_mode='reflect'
