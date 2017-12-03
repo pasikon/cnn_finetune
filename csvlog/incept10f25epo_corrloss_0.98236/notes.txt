@@ -1,0 +1,15 @@
+min lr: 1e-7
+EarlyStopping(monitor='val_loss', patience=5, verbose=1, min_delta=1e-4
+
+dropout 0.5
+
+def get_datagen_augment():
+    generator = ImageDataGenerator(
+        rotation_range=7,
+        width_shift_range=0.03,
+        height_shift_range=0.03,
+        horizontal_flip=True,
+        vertical_flip=True,
+        fill_mode='reflect'
+    )
+    return generator

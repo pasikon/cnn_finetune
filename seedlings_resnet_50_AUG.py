@@ -244,3 +244,4 @@ if __name__ == '__main__':
 
     # Cross-entropy loss score
     score = log_loss(Y_valid, predictions_valid)
+    print(score)

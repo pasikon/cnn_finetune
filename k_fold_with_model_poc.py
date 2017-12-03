@@ -14,6 +14,7 @@ from keras.layers import Dense, Input, Flatten, Dropout, GlobalAveragePooling2D
 from keras.layers.normalization import BatchNormalization
 from keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau, CSVLogger
 from keras.preprocessing.image import ImageDataGenerator
+from sklearn.metrics import log_loss
 
 
 def inceptionv3(img_dim):
@@ -36,7 +37,6 @@ def resnet50(img_dim):
                           weights='imagenet',
                           input_shape=img_dim,
                           pooling='avg')
-    # here the 4D tensor output of the last convolutional layer
     bn = BatchNormalization()(input_tensor)
     x = base_model(bn)
     x = Dropout(0.5)(x)
@@ -69,7 +69,6 @@ def ld_test_set():
     fpa = np.array(fpa)
     fpa = np.core.defchararray.add("seedlings_data/test/", fpa)
     fpa = fpa.squeeze()
-    fpa.shape
 
     imgs = []
 
@@ -84,10 +83,59 @@ def ld_test_set():
     return imgs
 
 
+def train_model(model, batch_size, epochs, x, y, x_valid, y_valid, name):
+    roc_auc = metrics.roc_auc_score
+    data_save_path = 'log_no_k_fold/' + name
+
+    valid_steps = int(len(x_valid) / batch_size)
+    train_steps = int(len(x) / batch_size)
+
+    callbacks = [EarlyStopping(monitor='val_loss', patience=5, verbose=1, min_delta=1e-4),
+                 CSVLogger(data_save_path + '/training_log_no_kfold.log'),
+                 ReduceLROnPlateau(monitor='val_loss', factor=0.12, patience=1, cooldown=1,
+                                   verbose=1, min_lr=5e-8),
+                 ModelCheckpoint(filepath=data_save_path + '/seedl_wgh_ep{epoch:02d}-{val_acc:.5f}.hdf5', verbose=1,
+                                 save_best_only=True, save_weights_only=True, mode='auto')]
+
+    model.compile(optimizer=Adam(lr=1e-4), loss='categorical_crossentropy',
+                  metrics=['accuracy'])
+
+    model.fit_generator(get_datagen_augment().flow(x, y, batch_size), train_steps, epochs=epochs,
+                        verbose=1,
+                        callbacks=callbacks,
+                        validation_data=get_datagen_augment().flow(x_valid, y_valid, batch_size),
+                        validation_steps=valid_steps)
+
+    # Make predictions
+    predictions_valid = model.predict(x_valid, batch_size=batch_size, verbose=1)
+
+    # Cross-entropy loss score
+    score = log_loss(y_valid, predictions_valid)
+    print('score pred method 1:' + str(score))
+
+    # ------------------
+    print('Running validation predictions\n')
+    preds_valid = model.predict_generator(generator=get_datagen_augment().flow(x_valid, y_valid, batch_size,
+                                                                               shuffle=False),
+                                          steps=valid_steps, verbose=1)
+
+    print('Running train predictions\n')
+    preds_train = model.predict_generator(generator=get_datagen_augment().flow(x, y, batch_size,
+                                                                               shuffle=False),
+                                          steps=train_steps, verbose=1)
+
+    valid_score = roc_auc(y_valid, preds_valid)
+    train_score = roc_auc(y, preds_train)
+    print('Val Score: {}'.format(valid_score))
+    print('Train Score: {}'.format(train_score))
+
+
 def train_model_k_fold(model, batch_size, epochs, x, y, test_set, n_fold, kf, name):
     data_save_path = 'csvlog/' + name
+    validation_batch = 24
 
     roc_auc = metrics.roc_auc_score
+
     # preds_train = np.zeros(len(x), dtype=np.float)
     preds_test = np.zeros((test_set.shape[0], y.shape[1]), dtype=np.float)
     train_scores = []
@@ -109,7 +157,7 @@ def train_model_k_fold(model, batch_size, epochs, x, y, test_set, n_fold, kf, na
                                      save_best_only=True, save_weights_only=True, mode='auto')]
 
         train_steps = int(len(x_train) / batch_size)
-        valid_steps = int(len(x_valid) / batch_size)
+        valid_steps = int(len(x_valid) / validation_batch)
         test_steps = int(test_set.shape[0] / batch_size)
 
         model.compile(optimizer=Adam(lr=1e-4), loss='categorical_crossentropy',
@@ -118,13 +166,13 @@ def train_model_k_fold(model, batch_size, epochs, x, y, test_set, n_fold, kf, na
         model.fit_generator(get_datagen_augment().flow(x_train, y_train, batch_size), train_steps, epochs=epochs,
                             verbose=1,
                             callbacks=callbacks,
-                            validation_data=get_datagen_augment().flow(x_valid, y_valid, batch_size),
+                            validation_data=get_datagen_augment().flow(x_valid, y_valid, validation_batch),
                             validation_steps=valid_steps)
 
         model.load_weights(filepath=data_save_path + '/weights_fold_' + str(i) + '.hdf5')
 
         print('Running validation predictions on fold {}'.format(i))
-        preds_valid = model.predict_generator(generator=get_datagen_augment().flow(x_valid, y_valid, batch_size,
+        preds_valid = model.predict_generator(generator=get_datagen_augment().flow(x_valid, y_valid, validation_batch,
                                                                                    shuffle=False),
                                               steps=valid_steps, verbose=1)
 
@@ -172,27 +220,28 @@ def get_img_dim():
     return img_dim
 
 
-n_fold = 10
-kf = KFold(n_splits=n_fold, shuffle=True)
-x_loaded = np.load('seedlings_data/numpy_imgs_resized_train.npy')
-y_loaded = np.load('seedlings_data/numpy_imgs_train_onehot.npy')
+if __name__ == '__main__':
+    n_fold = 10
+    kf = KFold(n_splits=n_fold, shuffle=True)
+    x_loaded = np.load('seedlings_data/numpy_imgs_resized_train.npy')
+    y_loaded = np.load('seedlings_data/numpy_imgs_train_onehot.npy')
 
-img_dimension = get_img_dim()
+    img_dimension = get_img_dim()
 
-# model = inceptionv3(img_dimension)
-model = resnet50(img_dimension)
-model.summary()
+    # model = inceptionv3(img_dimension)
+    model = resnet50(img_dimension)
+    model.summary()
 
-batch_size = 32
-epochs = 25
+    batch_size = 24
+    epochs = 25
 
-run_name = 'ResNet50_preds_kfold10ep25_cat_cross_ent'
-pathlib.Path('csvlog/' + run_name).mkdir(parents=True, exist_ok=True)
+    run_name = 'ResNet50_preds_kfold10ep25_cat_cross_ent'
+    pathlib.Path('csvlog/' + run_name).mkdir(parents=True, exist_ok=True)
 
-test_set = ld_test_set()
+    test_set = ld_test_set()
 
-model_k_fold = train_model_k_fold(model=model, batch_size=batch_size, epochs=epochs, x=x_loaded, y=y_loaded,
-                                  test_set=test_set, n_fold=n_fold, kf=kf, name=run_name)
-np.save('seedl_subms/' + run_name + '.npy', model_k_fold)
+    model_k_fold = train_model_k_fold(model=model, batch_size=batch_size, epochs=epochs, x=x_loaded, y=y_loaded,
+                                      test_set=test_set, n_fold=n_fold, kf=kf, name=run_name)
+    np.save('seedl_subms/' + run_name + '.npy', model_k_fold)
 
-print(model_k_fold)
+    print(model_k_fold)
