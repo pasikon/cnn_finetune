@@ -6,13 +6,12 @@ import numpy as np
 from keras.applications.inception_v3 import InceptionV3
 from keras.applications.xception import Xception
 from keras.applications.resnet50 import ResNet50
-from keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau, CSVLogger
+from keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau, CSVLogger, TensorBoard
 from keras.layers import Dense, Input, Dropout, GlobalAveragePooling2D
 from keras.layers.normalization import BatchNormalization
 from keras.models import Model
 from keras.optimizers import Adam, SGD
 from keras.preprocessing.image import ImageDataGenerator
-from sklearn import metrics
 from sklearn.model_selection import KFold
 
 
@@ -125,12 +124,9 @@ def ld_test_set():
 def train_model_k_fold(model, batch_size, epochs, x, y, test_set, n_fold, kf, name):
     data_save_path = 'csvlog/' + name
 
-    roc_auc = metrics.roc_auc_score
-
-    # preds_train = np.zeros(len(x), dtype=np.float)
     preds_test = np.zeros((test_set.shape[0], y.shape[1]), dtype=np.float)
-    train_scores = []
-    valid_scores = []
+    train_acc_scores = []
+    valid_acc_scores = []
 
     i = 1
 
@@ -152,7 +148,7 @@ def train_model_k_fold(model, batch_size, epochs, x, y, test_set, n_fold, kf, na
         test_steps = test_set.shape[0] / batch_size
 
         model.compile(optimizer=Adam(lr=1e-4), loss='categorical_crossentropy',
-                      metrics=['accuracy'])
+                      metrics=['categorical_accuracy'])
 
         model.fit_generator(get_datagen_augment().flow(x_train, y_train, batch_size), steps_per_epoch=train_steps,
                             epochs=epochs,
@@ -164,36 +160,36 @@ def train_model_k_fold(model, batch_size, epochs, x, y, test_set, n_fold, kf, na
         model.load_weights(filepath=data_save_path + '/weights_fold_' + str(i) + '.hdf5')
 
         print('Running validation predictions on fold {}'.format(i))
-        preds_valid = model.predict_generator(generator=get_datagen_augment().flow(x_valid, y_valid, batch_size,
-                                                                                   shuffle=False),
-                                              steps=valid_steps, verbose=1, workers=12, max_queue_size=100)
+        score_valid = model.evaluate_generator(generator=get_datagen_augment().flow(x_valid, y_valid, batch_size,
+                                                                                    shuffle=False),
+                                               steps=valid_steps, workers=12, max_queue_size=100)
 
         print('Running train predictions on fold {}'.format(i))
-        preds_train = model.predict_generator(generator=get_datagen_augment().flow(x_train, y_train, batch_size,
-                                                                                   shuffle=False),
-                                              steps=train_steps, verbose=1, workers=12, max_queue_size=100)
+        score_train = model.evaluate_generator(generator=get_datagen_augment().flow(x_train, y_train, batch_size,
+                                                                                    shuffle=False),
+                                               steps=train_steps, workers=12, max_queue_size=100)
 
-        valid_score = roc_auc(y_valid, preds_valid)
-        train_score = roc_auc(y_train, preds_train)
-        print('Val Score:{} for fold {}'.format(valid_score, i))
-        print('Train Score: {} for fold {}'.format(train_score, i))
+        print('validation (aug) loss and cat_accuracy: {} for fold {}'.format(score_valid, i))
+        print('train (aug) loss and cat_accuracy: {} for fold {}'.format(score_train, i))
 
-        valid_scores.append(valid_score)
-        train_scores.append(train_score)
-        print('----------------\n')
-        print('Avg Train Score:{0:0.5f}, Val Score:{1:0.5f} after {2:0.5f} folds'.format
-              (np.mean(train_scores), np.mean(valid_scores), i))
+        valid_acc_scores.append(score_valid[1])
+        train_acc_scores.append(score_train[1])
+
+        print('Avg Train accuracy:{0:0.5f}, Val accuracy:{1:0.5f} after {2:0.5f} folds'.format
+              (np.mean(train_acc_scores), np.mean(valid_acc_scores), i))
 
         print('Running test set predictions with fold {}'.format(i))
 
-        preds_test_fold = model.predict(test_set, batch_size=batch_size, verbose=1)
+        preds_test_fold = model.predict(test_set, batch_size=batch_size, verbose=0)
         for pi in range(0, 3):
             print('Test set predictions random cropping iteration: {}'.format(pi))
             preds_test_fold += model.predict_generator(
                 generator=validation_rnd_crop_generator().flow(x=test_set, batch_size=batch_size, shuffle=False),
                 steps=test_steps,
-                verbose=1,
-                workers=1)
+                verbose=0,
+                workers=12,
+                max_queue_size=100
+            )
 
         preds_test += (preds_test_fold / 4)
 
@@ -222,7 +218,7 @@ def get_img_dim():
 if __name__ == '__main__':
     n_fold = 10
     batch_size = 32
-    epochs = 25
+    epochs = 1
 
     kf = KFold(n_splits=n_fold, shuffle=True)
     x_loaded = np.load('seedlings_data/numpy_imgs_resized_train.npy')
@@ -240,7 +236,7 @@ if __name__ == '__main__':
     # model = resnet50(img_dimension)
     model.summary()
 
-    run_name = 'incept_best_corrected_steps'
+    run_name = 'del_me'
     pathlib.Path('csvlog/' + run_name).mkdir(parents=True, exist_ok=True)
 
     model_k_fold = train_model_k_fold(model=model, batch_size=batch_size, epochs=epochs, x=x_loaded, y=y_loaded,
