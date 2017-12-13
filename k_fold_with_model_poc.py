@@ -62,9 +62,9 @@ def resnet50(img_dim):
 
 def get_datagen_augment():
     generator = ImageDataGenerator(
-        rotation_range=45,
-        width_shift_range=0.13,
-        height_shift_range=0.13,
+        rotation_range=7,
+        width_shift_range=0.1,
+        height_shift_range=0.1,
         horizontal_flip=True,
         vertical_flip=True,
         fill_mode='reflect'
@@ -218,7 +218,7 @@ def get_img_dim():
 if __name__ == '__main__':
     n_fold = 10
     batch_size = 32
-    epochs = 1
+    epochs = 25
 
     kf = KFold(n_splits=n_fold, shuffle=True)
     x_loaded = np.load('seedlings_data/numpy_imgs_resized_train.npy')
@@ -236,7 +236,7 @@ if __name__ == '__main__':
     # model = resnet50(img_dimension)
     model.summary()
 
-    run_name = 'del_me'
+    run_name = 'inc_softmax'
     pathlib.Path('csvlog/' + run_name).mkdir(parents=True, exist_ok=True)
 
     model_k_fold = train_model_k_fold(model=model, batch_size=batch_size, epochs=epochs, x=x_loaded, y=y_loaded,

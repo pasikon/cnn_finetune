@@ -4,7 +4,7 @@ from keras.models import Model
 from keras.layers import Dense, GlobalAveragePooling2D, Input
 from sklearn.model_selection import train_test_split
 from k_fold_with_model_poc import get_datagen_augment, get_img_dim, get_datagen_noop, ld_test_set
-from keras.optimizers import SGD
+from keras.optimizers import SGD, Adam
 from keras.layers.normalization import BatchNormalization
 
 x_loaded = np.load('seedlings_data/numpy_imgs_resized_train.npy')
@@ -26,7 +26,7 @@ bn = BatchNormalization()(input_tensor)
 x = base_model(bn)
 x = GlobalAveragePooling2D()(x)
 # let's add a fully-connected layer
-x = Dense(1024, activation='relu')(x)
+x = Dense(512, activation='relu')(x)
 x = Dense(256, activation='tanh')(x)
 # and a logistic layer
 predictions = Dense(12, activation='softmax')(x)
@@ -46,7 +46,7 @@ model.summary()
 
 # train the model on the new data for a few epochs
 model.fit_generator(generator=get_datagen_augment().flow(x=x_train, y=y_train, batch_size=batch_size),
-                    steps_per_epoch=train_steps, epochs=30, validation_data=(x_test, y_test), workers=12,
+                    steps_per_epoch=train_steps, epochs=10, validation_data=(x_test, y_test), workers=12,
                     max_queue_size=100)
 
 # at this point, the top layers are well trained and we can start fine-tuning
@@ -62,23 +62,25 @@ for i, layer in enumerate(base_model.layers):
 # the first 249 layers and unfreeze the rest:
 for layer in base_model.layers[:249]:
     layer.trainable = False
+    # layer.trainable = True
 for layer in base_model.layers[249:]:
     layer.trainable = True
 
 # we need to recompile the model for these modifications to take effect
 # we use SGD with a low learning rate
-model.compile(optimizer=SGD(lr=0.0001, momentum=0.9), loss='categorical_crossentropy', metrics=['categorical_accuracy'])
+# model.compile(optimizer=SGD(lr=0.0001, momentum=0.9), loss='categorical_crossentropy', metrics=['categorical_accuracy'])
+model.compile(optimizer=Adam(lr=0.0001), loss='categorical_crossentropy', metrics=['categorical_accuracy'])
 
 model.summary()
 
 # we train our model again (this time fine-tuning the top 2 inception blocks
 # alongside the top Dense layers
 model.fit_generator(generator=get_datagen_augment().flow(x=x_train, y=y_train, batch_size=batch_size),
-                    steps_per_epoch=train_steps, epochs=5, validation_data=(x_test, y_test), workers=12,
+                    steps_per_epoch=train_steps, epochs=20, validation_data=(x_test, y_test), workers=12,
                     max_queue_size=100)
 
-score_test = model.evaluate(x=x_test, y=y_test)
-score_train = model.evaluate(x=x_train, y=y_train)
+score_test = model.evaluate(x=x_test, y=y_test, verbose=0)
+score_train = model.evaluate(x=x_train, y=y_train, verbose=0)
 score_train_aug = model.evaluate_generator(generator=get_datagen_augment().flow(x_train, y_train, batch_size,
                                                                                 shuffle=False),
                                            steps=train_steps, max_queue_size=100, workers=12)
@@ -95,7 +97,7 @@ print('Loading competition set...')
 c_set = ld_test_set()
 c_set = np.array(c_set, np.float32) / 255.
 print('Predicting competition set...')
-c_set_preds = model.predict(c_set, batch_size=batch_size, verbose=1)
+c_set_preds = model.predict(c_set, batch_size=batch_size, verbose=0)
 print('Saving competition set...')
 np.save('seedl_subms/FINETUNE.npy', c_set_preds)
 print('Competition set sample:')
